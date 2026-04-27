@@ -22,7 +22,7 @@ def startup_event():
     thread = threading.Thread(target=engine_instance.run_loop, daemon=True)
     thread.start()
 
-# --- THE NEW DASHBOARD UI ---
+# --- DASHBOARD UI ---
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
     return """
@@ -50,64 +50,35 @@ async def read_root():
             async function fetchData() {
                 const res = await fetch('/api/dashboard');
                 const data = await res.json();
-                
-                // Update Stats
                 document.getElementById('equity').innerText = '$' + data.equity.toFixed(2);
                 document.getElementById('dailyPnl').innerText = '$' + data.dailyPnL.toFixed(2);
                 document.getElementById('dailyPnl').className = data.dailyPnL >= 0 ? 'stat-value profit' : 'stat-value loss';
-                
-                // Update Logs
                 const logsDiv = document.getElementById('logs');
-                logsDiv.innerHTML = data.logs.map(l => 
-                    `<div class="log-${l.level}">[${l.time}] ${l.message}</div>`
-                ).join('');
+                logsDiv.innerHTML = data.logs.map(l => `<div class="log-${l.level}">[${l.time}] ${l.message}</div>`).join('');
                 logsDiv.scrollTop = logsDiv.scrollHeight;
-                
-                // Update Positions
                 const posDiv = document.getElementById('positions');
                 if (data.positions.length === 0) {
                     posDiv.innerHTML = '<p style="color:#64748b">Scanning market for entries...</p>';
                 } else {
                     posDiv.innerHTML = '<table><th>Symbol</th><th>Side</th><th>PnL</th>' + 
-                    data.positions.map(p => 
-                        `<tr>
-                            <td>${p.symbol}</td>
-                            <td style="color:${p.side === 'long' ? '#22c55e' : '#ef4444'}">${p.side.toUpperCase()}</td>
-                            <td style="color:${p.pnl >= 0 ? '#22c55e' : '#ef4444'}">${p.pnlPercent.toFixed(2)}%</td>
-                        </tr>`
-                    ).join('') + '</table>';
+                    data.positions.map(p => `<tr><td>${p.symbol}</td><td style="color:${p.side === 'long' ? '#22c55e' : '#ef4444'}">${p.side.toUpperCase()}</td><td style="color:${p.pnl >= 0 ? '#22c55e' : '#ef4444'}">${p.pnlPercent.toFixed(2)}%</td></tr>`).join('') + '</table>';
                 }
             }
-            setInterval(fetchData, 2000); // Update every 2 seconds
+            setInterval(fetchData, 2000);
             fetchData();
         </script>
     </head>
     <body>
         <h1>⚔️ RAYR QUANT TERMINAL</h1>
         <div class="grid">
-            <div class="card">
-                <div class="stat-label">Virtual Equity</div>
-                <div id="equity" class="stat-value">Loading...</div>
-            </div>
-            <div class="card">
-                <div class="stat-label">Daily P&L</div>
-                <div id="dailyPnl" class="stat-value">Loading...</div>
-            </div>
+            <div class="card"><div class="stat-label">Virtual Equity</div><div id="equity" class="stat-value">Loading...</div></div>
+            <div class="card"><div class="stat-label">Daily P&L</div><div id="dailyPnl" class="stat-value">Loading...</div></div>
         </div>
-        <br>
-        <div class="card">
-            <h3>Open Positions</h3>
-            <div id="positions">Loading...</div>
-        </div>
-        <br>
-        <div class="card">
-            <h3>System Logs</h3>
-            <div id="logs">Loading...</div>
-        </div>
+        <br><div class="card"><h3>Open Positions</h3><div id="positions">Loading...</div></div>
+        <br><div class="card"><h3>System Logs</h3><div id="logs">Loading...</div></div>
     </body>
     </html>
     """
-# ----------------------------
 
 @app.get("/api/dashboard")
 def get_dashboard_data():
@@ -125,8 +96,3 @@ def save_settings(payload: SettingsPayload):
     engine_instance.update_risk(payload.maxRisk, payload.maxDrawdown, payload.dailyLoss)
     engine_instance.update_strategy_controls(payload.enableLongs, payload.enableShorts)
     return {"status": "success", "message": "Settings applied to engine!"}
-
-@app.get("/api/test-connection")
-def test_connection():
-    is_connected = engine_instance.test_broker_connection()
-    return {"connected": is_connected}
