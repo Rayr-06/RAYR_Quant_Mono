@@ -1,0 +1,155 @@
+// ============================================
+// QUANTFORGE - TRADINGVIEW PINE SCRIPT STRATEGY
+// ============================================
+// This script generates webhook alerts for QuantForge
+// 
+// HOW TO USE:
+// 1. Open TradingView (https://tradingview.com)
+// 2. Open Pine Script Editor (bottom panel)
+// 3. Create new strategy
+// 4. Paste this code
+// 5. Add to chart
+// 6. Set up alerts with webhook URL
+// ============================================
+
+//@version=6
+strategy("QuantForge Momentum Strategy", overlay=true, margin_long=100, margin_short=100)
+
+// ============================================
+// INPUTS
+// ============================================
+fastEMA = input.int(20, "Fast EMA", minval=5)
+slowEMA = input.int(50, "Slow EMA", minval=20)
+trendEMA = input.int(200, "Trend EMA", minval=100)
+rsiPeriod = input.int(14, "RSI Period", minval=5)
+rsiOverbought = input.int(70, "RSI Overbought")
+rsiOversold = input.int(30, "RSI Oversold")
+atrPeriod = input.int(14, "ATR Period", minval=5)
+atrStopMultiple = input.float(2.0, "ATR Stop Multiple", minval=1.0)
+riskRewardRatio = input.float(2.5, "Risk:Reward Ratio", minval=1.5)
+
+// Position sizing
+capital = input.float(500000, "Capital (₹)")
+riskPerTrade = input.float(1.0, "Risk per Trade (%)", minval=0.5, maxval=2.0)
+
+// Webhook URL (set this in your alert settings)
+// Example: https://your-server.com/api/webhook
+webhookUrl = input.string("https://your-webhook-url.com/api/webhook", "Webhook URL")
+
+// ============================================
+// CALCULATIONS
+// ============================================
+// Moving Averages
+emaFast = ta.ema(close, fastEMA)
+emaSlow = ta.ema(close, slowEMA)
+emaTrend = ta.ema(close, trendEMA)
+
+// RSI
+rsi = ta.rsi(close, rsiPeriod)
+
+// ATR for stop loss
+atr = ta.atr(atrPeriod)
+
+// Volume
+volumeSMA = ta.sma(volume, 20)
+volumeConfirm = volume > volumeSMA * 1.5
+
+// Trend detection
+isUptrend = close > emaTrend and emaFast > emaSlow
+isDowntrend = close < emaTrend and emaFast < emaSlow
+
+// ============================================
+// ENTRY CONDITIONS
+// ============================================
+// Long Entry
+longCondition = (
+    isUptrend and
+    ta.crossover(close, emaFast) and  // Price crosses above fast EMA
+    rsi > 50 and rsi < rsiOverbought and
+    volumeConfirm and
+    ta.crossover(emaFast, emaSlow)  // Momentum confirmation
+)
+
+// Short Entry
+shortCondition = (
+    isDowntrend and
+    ta.crossunder(close, emaFast) and  // Price crosses below fast EMA
+    rsi < 50 and rsi > rsiOversold and
+    volumeConfirm and
+    ta.crossunder(emaFast, emaSlow)
+)
+
+// ============================================
+// CALCULATE STOP LOSS & TAKE PROFIT
+// ============================================
+longStopLoss = close - (atr * atrStopMultiple)
+longTakeProfit = close + (atr * atrStopMultiple * riskRewardRatio)
+
+shortStopLoss = close + (atr * atrStopMultiple)
+shortTakeProfit = close - (atr * atrStopMultiple * riskRewardRatio)
+
+// Calculate position size
+riskAmount = capital * (riskPerTrade / 100)
+longQty = math.floor(riskAmount / (close - longStopLoss))
+shortQty = math.floor(riskAmount / (shortStopLoss - close))
+
+// ============================================
+// EXECUTE TRADES
+// ============================================
+if (longCondition and strategy.position_size == 0)
+    strategy.entry("Long", strategy.long, qty=longQty)
+    
+    // Log trade info
+    strategy.message("LONG Entry: " + syminfo.ticker + " @ " + str.tostring(close))
+
+if (shortCondition and strategy.position_size == 0)
+    strategy.entry("Short", strategy.short, qty=shortQty)
+    
+    // Log trade info
+    strategy.message("SHORT Entry: " + syminfo.ticker + " @ " + str.tostring(close))
+
+// Exit conditions
+if (strategy.position_size > 0)
+    strategy.exit("Long Exit", "Long", stop=longStopLoss, limit=longTakeProfit)
+
+if (strategy.position_size < 0)
+    strategy.exit("Short Exit", "Short", stop=shortStopLoss, limit=shortTakeProfit)
+
+// ============================================
+// PLOTTING
+// ============================================
+plot(emaFast, "Fast EMA", color=color.blue, linewidth=2)
+plot(emaSlow, "Slow EMA", color=color.orange, linewidth=2)
+plot(emaTrend, "Trend EMA", color=color.white, linewidth=3)
+
+// Entry signals
+plotshape(longCondition, "Long Signal", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.large)
+plotshape(shortCondition, "Short Signal", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.large)
+
+// Stop loss and take profit levels
+plot(strategy.position_size > 0 ? longStopLoss : na, "Long SL", color=color.red, style=plot.style_linebr)
+plot(strategy.position_size > 0 ? longTakeProfit : na, "Long TP", color=color.green, style=plot.style_linebr)
+plot(strategy.position_size < 0 ? shortStopLoss : na, "Short SL", color=color.red, style=plot.style_linebr)
+plot(strategy.position_size < 0 ? shortTakeProfit : na, "Short TP", color=color.green, style=plot.style_linebr)
+
+// Background color for trend
+bgcolor(isUptrend ? color.new(color.green, 90) : isDowntrend ? color.new(color.red, 90) : na)
+
+// ============================================
+// WEBHOOK ALERT MESSAGE FORMAT
+// ============================================
+// Create alerts with this message format for QuantForge:
+//
+// {
+//   "symbol": "{{ticker}}",
+//   "action": "{{strategy.order.action}}",
+//   "price": "{{strategy.order.price}}",
+//   "quantity": "{{strategy.order.contracts}}",
+//   "stopLoss": {{plot("Long SL")}},
+//   "takeProfit": {{plot("Long TP")}},
+//   "strategy": "Momentum",
+//   "secret": "your-secret-key"
+// }
+//
+// Or use this simpler format:
+// {{ticker}}:{{strategy.order.action}}:{{strategy.order.price}}:{{strategy.order.contracts}}
